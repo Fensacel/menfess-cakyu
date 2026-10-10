@@ -1,207 +1,414 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { MenfessSubmission, SubmissionStatus } from '@/types/admin';
-import { MenfessConfig } from '@/types/template';
+import { getTemplateById } from '@/lib/canvas/templates';
 import {
-  getSubmissions,
-  saveSubmissions,
-  updateSubmission,
-  deleteSubmission,
-  addSubmission,
-} from '@/lib/storage/submissions';
-import { AdminHeader } from '@/components/admin/AdminHeader';
-import { AdminStatsCards } from '@/components/admin/AdminStatsCards';
-import { AdminQueueList } from '@/components/admin/AdminQueueList';
-import { InstagramPostStudio } from '@/components/admin/InstagramPostStudio';
-import { NewMenfessModal } from '@/components/admin/NewMenfessModal';
+  LogOut,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  Search,
+  Filter,
+  RefreshCw,
+  Eye,
+  Download,
+  Loader2,
+  X,
+} from 'lucide-react';
+import { supabase } from '@/lib/supabase/client';
 
-export default function AdminPage() {
-  const [isDark, setIsDark] = useState(false);
+export default function AdminDashboardPage() {
   const [submissions, setSubmissions] = useState<MenfessSubmission[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | SubmissionStatus>('all');
-  const [isNewModalOpen, setIsNewModalOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<'all' | SubmissionStatus>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [notification, setNotification] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
-  // Load from local storage
-  useEffect(() => {
-    const load = () => {
-      const data = getSubmissions();
-      setSubmissions(data);
-      if (data.length > 0 && !selectedId) {
-        setSelectedId(data[0].id);
+  const router = useRouter();
+
+  const fetchSubmissions = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('admin_access_token');
+      if (!token) {
+        router.push('/admin/login');
+        return;
       }
-    };
 
-    load();
+      const res = await fetch('/api/admin/submissions', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
-    const handleUpdate = () => load();
-    window.addEventListener('menfess-submissions-updated', handleUpdate);
-    window.addEventListener('storage', handleUpdate);
+      if (res.status === 401) {
+        localStorage.removeItem('admin_access_token');
+        router.push('/admin/login');
+        return;
+      }
 
-    return () => {
-      window.removeEventListener('menfess-submissions-updated', handleUpdate);
-      window.removeEventListener('storage', handleUpdate);
-    };
-  }, [selectedId]);
-
-  // Statistics calculation
-  const stats = useMemo(() => {
-    return {
-      total: submissions.length,
-      pending: submissions.filter((s) => s.status === 'pending').length,
-      approved: submissions.filter((s) => s.status === 'approved').length,
-      uploaded: submissions.filter((s) => s.status === 'uploaded').length,
-      rejected: submissions.filter((s) => s.status === 'rejected').length,
-    };
-  }, [submissions]);
-
-  // Selected item
-  const selectedSubmission = useMemo(() => {
-    return submissions.find((s) => s.id === selectedId) || null;
-  }, [submissions, selectedId]);
-
-  // Actions
-  const handleUpdateStatus = (
-    id: string,
-    status: SubmissionStatus,
-    extra?: { instagramUrl?: string; rejectionReason?: string; caption?: string }
-  ) => {
-    const updated = updateSubmission(id, {
-      status,
-      ...extra,
-    });
-    setSubmissions(updated);
-  };
-
-  const handleUpdateTemplate = (id: string, newTemplateId: string) => {
-    const sub = submissions.find((s) => s.id === id);
-    if (!sub) return;
-    const updated = updateSubmission(id, {
-      config: {
-        ...sub.config,
-        templateId: newTemplateId,
-      },
-    });
-    setSubmissions(updated);
-  };
-
-  const handleDelete = (id: string) => {
-    if (!confirm('Yakin ingin menghapus menfess ini dari antrean?')) return;
-    const updated = deleteSubmission(id);
-    setSubmissions(updated);
-    if (selectedId === id) {
-      setSelectedId(updated[0]?.id || null);
+      const data = await res.json();
+      if (data.submissions) {
+        setSubmissions(data.submissions);
+      }
+    } catch (err) {
+      console.error('Failed to fetch submissions:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleNewManual = (config: MenfessConfig) => {
-    const created = addSubmission(config);
-    setSubmissions(getSubmissions());
-    setSelectedId(created.id);
+  useEffect(() => {
+    const token = localStorage.getItem('admin_access_token');
+    if (!token) {
+      router.push('/admin/login');
+      return;
+    }
+    fetchSubmissions();
+  }, [router]);
+
+  const showToast = (msg: string) => {
+    setNotification(msg);
+    setTimeout(() => {
+      setNotification(null);
+    }, 3000);
   };
 
-  const handleResetData = () => {
-    if (!confirm('Reset semua data antrean ke contoh bawaan?')) return;
-    localStorage.removeItem('menfess_studio_submissions_v1');
-    const fresh = getSubmissions();
-    setSubmissions(fresh);
-    setSelectedId(fresh[0]?.id || null);
+  const handleUpdateStatus = async (id: string, status: 'approved' | 'rejected') => {
+    try {
+      const token = localStorage.getItem('admin_access_token');
+      const res = await fetch('/api/admin/submissions', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ id, status }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        showToast(data.error || 'Gagal mengubah status.');
+        return;
+      }
+
+      setSubmissions((prev) =>
+        prev.map((sub) => (sub.id === id ? { ...sub, status } : sub))
+      );
+
+      if (status === 'approved') {
+        showToast('Menfess berhasil di-approve.');
+      } else {
+        showToast('Menfess ditolak.');
+      }
+    } catch (err) {
+      showToast('Gagal memperbarui status.');
+    }
+  };
+
+  const handleDownloadImage = async (imageUrl: string, filename: string) => {
+    try {
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      showToast('Gambar berhasil di-download!');
+    } catch (err) {
+      // Fallback direct link download
+      const a = document.createElement('a');
+      a.href = imageUrl;
+      a.download = filename;
+      a.target = '_blank';
+      a.click();
+    }
+  };
+
+  const handleLogout = async () => {
+    if (supabase) {
+      await supabase.auth.signOut();
+    }
+    localStorage.removeItem('admin_access_token');
+    router.push('/admin/login');
+  };
+
+  const filteredSubmissions = submissions
+    .filter((s) => {
+      if (statusFilter !== 'all' && s.status !== statusFilter) return false;
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        s.message.toLowerCase().includes(q) ||
+        (s.sender_name && s.sender_name.toLowerCase().includes(q))
+      );
+    })
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  const stats = {
+    total: submissions.length,
+    pending: submissions.filter((s) => s.status === 'pending').length,
+    approved: submissions.filter((s) => s.status === 'approved').length,
+    rejected: submissions.filter((s) => s.status === 'rejected').length,
   };
 
   return (
-    <div
-      className={`min-h-screen transition-colors duration-300 ${
-        isDark ? 'bg-stone-950 text-stone-100' : 'bg-stone-50 text-stone-900'
-      }`}
-    >
-      {/* Header */}
-      <AdminHeader
-        isDark={isDark}
-        onThemeToggle={() => setIsDark((d) => !d)}
-        onNewManual={() => setIsNewModalOpen(true)}
-        onResetData={handleResetData}
-        pendingCount={stats.pending}
-      />
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
-        {/* Banner Announcement */}
-        <div
-          className={`
-            p-4 sm:p-5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4
-            ${
-              isDark
-                ? 'bg-gradient-to-r from-stone-900 to-amber-950/20 border-stone-800'
-                : 'bg-gradient-to-r from-amber-50/70 to-stone-50 border-amber-900/15'
-            }
-          `}
-        >
-          <div>
-            <span className="font-mono text-[10px] tracking-widest uppercase text-amber-600 dark:text-amber-400 font-bold">
-              ★ Instagram Dispatcher Desk
-            </span>
-            <h2 className="font-serif text-xl sm:text-2xl font-bold mt-0.5">
-              Kelola Antrean & Upload Menfess
-            </h2>
-            <p className={`text-xs mt-1 max-w-2xl ${isDark ? 'text-stone-400' : 'text-stone-600'}`}>
-              Review kiriman menfess, unduh canvas gambar resolusi tinggi, salin caption Instagram otomatis, dan tandai saat postingan sudah live di feed Instagram.
-            </p>
+    <div className="min-h-screen bg-stone-950 text-stone-100 font-sans">
+      <header className="border-b border-stone-800 bg-stone-900/80 backdrop-blur sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-amber-500 text-stone-950 font-bold font-serif flex items-center justify-center text-lg">
+              M
+            </div>
+            <div>
+              <h1 className="font-serif font-bold text-base tracking-wider uppercase text-stone-100">
+                MENFESS ADMIN
+              </h1>
+              <p className="font-mono text-[9px] text-stone-400 tracking-widest uppercase">
+                Dashboard Moderasi & Antrean
+              </p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 self-start sm:self-auto font-mono text-xs">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
-            <span className={isDark ? 'text-stone-300' : 'text-stone-700'}>
-              Sinkronisasi Lokal Aktif
+          <div className="flex items-center gap-3">
+            <button
+              onClick={fetchSubmissions}
+              className="p-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 transition-colors"
+              title="Refresh data"
+            >
+              <RefreshCw size={16} />
+            </button>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-mono tracking-wider uppercase transition-colors"
+            >
+              <LogOut size={14} />
+              Logout
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {notification && (
+        <div className="fixed top-20 right-6 z-50 bg-amber-500 text-stone-950 font-mono text-xs font-bold px-4 py-3 rounded-xl shadow-xl animate-bounce">
+          {notification}
+        </div>
+      )}
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="p-5 rounded-2xl bg-stone-900 border border-stone-800 space-y-1">
+            <span className="font-mono text-[10px] uppercase tracking-widest text-stone-400">
+              Pending
             </span>
+            <div className="flex items-center justify-between">
+              <span className="font-serif text-3xl font-bold text-amber-400">
+                {stats.pending}
+              </span>
+              <Clock size={20} className="text-amber-400/50" />
+            </div>
+          </div>
+
+          <div className="p-5 rounded-2xl bg-stone-900 border border-stone-800 space-y-1">
+            <span className="font-mono text-[10px] uppercase tracking-widest text-stone-400">
+              Approved
+            </span>
+            <div className="flex items-center justify-between">
+              <span className="font-serif text-3xl font-bold text-emerald-400">
+                {stats.approved}
+              </span>
+              <CheckCircle2 size={20} className="text-emerald-400/50" />
+            </div>
+          </div>
+
+          <div className="p-5 rounded-2xl bg-stone-900 border border-stone-800 space-y-1">
+            <span className="font-mono text-[10px] uppercase tracking-widest text-stone-400">
+              Rejected
+            </span>
+            <div className="flex items-center justify-between">
+              <span className="font-serif text-3xl font-bold text-red-400">
+                {stats.rejected}
+              </span>
+              <XCircle size={20} className="text-red-400/50" />
+            </div>
+          </div>
+
+          <div className="p-5 rounded-2xl bg-stone-900 border border-stone-800 space-y-1">
+            <span className="font-mono text-[10px] uppercase tracking-widest text-stone-400">
+              Total
+            </span>
+            <div className="flex items-center justify-between">
+              <span className="font-serif text-3xl font-bold text-stone-200">
+                {stats.total}
+              </span>
+              <Filter size={20} className="text-stone-500" />
+            </div>
           </div>
         </div>
 
-        {/* Statistics Cards */}
-        <AdminStatsCards
-          stats={stats}
-          activeFilter={activeFilter}
-          onSelectFilter={setActiveFilter}
-          isDark={isDark}
-        />
-
-        {/* Master-Detail Split Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Left Column: Queue List (4 cols) */}
-          <div
-            className={`
-              lg:col-span-4 p-4 rounded-2xl border transition-colors
-              ${isDark ? 'border-stone-800 bg-stone-900/40' : 'border-stone-200 bg-stone-100/50'}
-            `}
-          >
-            <AdminQueueList
-              submissions={submissions}
-              selectedId={selectedId}
-              onSelect={(sub) => setSelectedId(sub.id)}
-              isDark={isDark}
-              activeFilter={activeFilter}
-            />
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-2xl bg-stone-900 border border-stone-800">
+          <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto pb-2 sm:pb-0">
+            {(['all', 'pending', 'approved', 'rejected'] as const).map((filter) => (
+              <button
+                key={filter}
+                onClick={() => setStatusFilter(filter)}
+                className={`px-4 py-2 rounded-xl text-xs font-mono tracking-wider uppercase font-semibold transition-colors whitespace-nowrap ${
+                  statusFilter === filter
+                    ? 'bg-amber-500 text-stone-950'
+                    : 'bg-stone-800 text-stone-400 hover:text-stone-200'
+                }`}
+              >
+                [ {filter} ]
+              </button>
+            ))}
           </div>
 
-          {/* Right Column: Instagram Studio & Workflow (8 cols) */}
-          <div className="lg:col-span-8">
-            <InstagramPostStudio
-              submission={selectedSubmission}
-              onUpdateStatus={handleUpdateStatus}
-              onUpdateTemplate={handleUpdateTemplate}
-              onDelete={handleDelete}
-              isDark={isDark}
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-3 top-2.5 text-stone-500" size={16} />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Cari pesan / pengirim..."
+              className="w-full pl-9 pr-4 py-2 rounded-xl bg-stone-800 border border-stone-700 text-xs text-stone-200 focus:outline-none focus:border-amber-500"
             />
           </div>
         </div>
+
+        {loading ? (
+          <div className="py-20 text-center text-stone-500 flex flex-col items-center gap-2">
+            <Loader2 size={24} className="animate-spin text-amber-500" />
+            <span className="font-mono text-xs uppercase tracking-widest">
+              Memuat data menfess...
+            </span>
+          </div>
+        ) : filteredSubmissions.length === 0 ? (
+          <div className="py-16 text-center text-stone-500 border border-dashed border-stone-800 rounded-2xl">
+            <p className="font-serif text-base">Tidak ada menfess ditemukan.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredSubmissions.map((sub) => {
+              const template = getTemplateById(sub.template_id);
+
+              return (
+                <div
+                  key={sub.id}
+                  className="rounded-2xl bg-stone-900 border border-stone-800 overflow-hidden flex flex-col justify-between hover:border-stone-700 transition-colors"
+                >
+                  <div className="p-5 space-y-4">
+                    <div className="relative aspect-square w-full rounded-xl overflow-hidden bg-stone-950 border border-stone-800 group">
+                      {sub.image_url ? (
+                        <img
+                          src={sub.image_url}
+                          alt="Menfess Render"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-stone-600 font-mono text-xs">
+                          No Image
+                        </div>
+                      )}
+                      <button
+                        onClick={() => setPreviewImage(sub.image_url)}
+                        className="absolute inset-0 bg-stone-950/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-stone-100 font-mono text-xs gap-2"
+                      >
+                        <Eye size={16} /> Lihat Gambar Full
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs font-mono">
+                      <span className="px-2.5 py-1 rounded-md bg-stone-800 text-stone-300 border border-stone-700 uppercase tracking-wider">
+                        {template?.name || sub.template_id}
+                      </span>
+
+                      <span
+                        className={`px-2.5 py-1 rounded-full border uppercase tracking-wider font-bold text-[10px] ${
+                          sub.status === 'pending'
+                            ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                            : sub.status === 'approved'
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                            : 'bg-red-500/10 text-red-400 border-red-500/30'
+                        }`}
+                      >
+                        {sub.status}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1">
+                      <p className="font-serif text-sm text-stone-200 line-clamp-3 leading-relaxed">
+                        "{sub.message}"
+                      </p>
+                    </div>
+
+                    <div className="text-[11px] font-mono text-stone-400 border-t border-stone-800/80 pt-3 space-y-1">
+                      <div>
+                        Pengirim:{' '}
+                        <span className="text-stone-200 font-semibold">
+                          {sub.sender_name || 'Anonim'}
+                        </span>
+                      </div>
+                      <div>
+                        Waktu:{' '}
+                        <span className="text-stone-400">
+                          {new Date(sub.created_at).toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 border-t border-stone-800 bg-stone-950/50 flex gap-3">
+                    <button
+                      onClick={() => handleDownloadImage(sub.image_url, `menfess-${sub.id}.png`)}
+                      className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-mono text-xs font-bold uppercase tracking-wider transition-colors flex items-center justify-center gap-2 shadow-lg shadow-amber-500/10"
+                    >
+                      <Download size={15} />
+                      Download
+                    </button>
+                    <button
+                      onClick={() => handleUpdateStatus(sub.id, 'rejected')}
+                      className="px-4 py-2.5 rounded-xl bg-red-600/80 hover:bg-red-500 text-white font-mono text-xs font-bold uppercase tracking-wider transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <XCircle size={15} />
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      {previewImage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/80 backdrop-blur-sm">
+          <div className="relative max-w-2xl w-full bg-stone-900 border border-stone-700 rounded-2xl p-4 space-y-4">
+            <button
+              onClick={() => setPreviewImage(null)}
+              className="absolute top-3 right-3 p-1 rounded-full bg-stone-800 text-stone-400 hover:text-white"
+            >
+              <X size={20} />
+            </button>
+            <h3 className="font-serif text-sm font-bold text-stone-300">
+              Preview Full Render PNG
+            </h3>
+            <div className="aspect-square w-full rounded-xl overflow-hidden bg-stone-950 border border-stone-800">
+              <img
+                src={previewImage}
+                alt="Full Preview"
+                className="w-full h-full object-contain"
+              />
+            </div>
+          </div>
+        </div>
+      )}
       </main>
-
-      {/* Manual Input Modal */}
-      <NewMenfessModal
-        isOpen={isNewModalOpen}
-        onClose={() => setIsNewModalOpen(false)}
-        onSubmit={handleNewManual}
-        isDark={isDark}
-      />
     </div>
   );
 }

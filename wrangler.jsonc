@@ -5,7 +5,7 @@
   "services": [
     {
       "binding": "WORKER_SELF_REFERENCE",
-      "service": "menfess-cakyu" // Update this from "menfess" to "menfess-cakyu"
+      "service": "menfess-cakyuu" // Update this from "menfess" to "menfess-cakyu"
     }
   ]
 }

@@ -288,9 +288,9 @@ function drawInstagramBoxCard(
   // Format fields
   const recipient = config.recipientName?.trim() || 'semua';
   const sender = config.isAnonymous
-    ? (config.senderName?.trim() || 'ada lah')
+    ? 'Anonim'
     : (config.senderName?.trim() || 'Anonim');
-  const note = config.message?.trim() || 'info tomboy wolfcut cik😋';
+  const note = config.message?.trim() || 'Tulis pesan menfess kamu di sini...';
   const song = config.song?.trim() || 'bebas';
 
   const fontSizeMult = fontSizeMap[config.fontSize] ?? 1.0;

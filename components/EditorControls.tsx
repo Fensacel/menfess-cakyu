@@ -60,7 +60,7 @@ export function EditorControls({
         </button>
       )}
 
-      {/* Right: Next or label */}
+      {/* Right: Next */}
       {!isLast && (
         <button
           onClick={onNext}
@@ -72,7 +72,7 @@ export function EditorControls({
               : 'bg-stone-900 border-stone-900 text-white hover:bg-stone-700 disabled:hover:bg-stone-900'
           }`}
         >
-          {currentStep === totalSteps - 1 ? 'Lanjut ke Download' : 'Lanjut'}
+          {currentStep === totalSteps - 1 ? 'Lanjut ke Review' : 'Lanjut'}
           <ArrowRight size={14} />
         </button>
       )}
@@ -93,3 +93,4 @@ export function EditorControls({
     </div>
   );
 }
+

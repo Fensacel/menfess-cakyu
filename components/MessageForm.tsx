@@ -251,8 +251,8 @@ export function MessageForm({ config, isDark, onChange }: MessageFormProps) {
         />
       </div>
 
-      {/* Recipient & Hashtag (Opsional) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Recipient, Song & Hashtag (Opsional) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
           <label htmlFor="recipient-name" className={labelClass}>
             Kepada / Penerima (Opsional)
@@ -263,6 +263,20 @@ export function MessageForm({ config, isDark, onChange }: MessageFormProps) {
             value={config.recipientName || ''}
             onChange={(e) => onChange({ recipientName: e.target.value })}
             placeholder="Contoh: @crush atau Si Dia..."
+            maxLength={60}
+            className={inputBase}
+          />
+        </div>
+        <div>
+          <label htmlFor="menfess-song" className={labelClass}>
+            Lagu / Song (Opsional)
+          </label>
+          <input
+            id="menfess-song"
+            type="text"
+            value={config.song || ''}
+            onChange={(e) => onChange({ song: e.target.value })}
+            placeholder="Judul lagu / Penyanyi..."
             maxLength={60}
             className={inputBase}
           />

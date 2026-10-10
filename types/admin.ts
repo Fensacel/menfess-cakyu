@@ -1,24 +1,18 @@
-import { MenfessConfig } from './template';
-
-export type SubmissionStatus = 'pending' | 'approved' | 'uploaded' | 'rejected';
+export type SubmissionStatus = 'pending' | 'approved' | 'rejected';
 
 export interface MenfessSubmission {
   id: string;
-  code: string; // e.g. "MF-1042"
-  createdAt: string; // ISO date
-  config: MenfessConfig;
+  template_id: string;
+  message: string;
+  sender_name?: string | null;
+  image_url: string;
   status: SubmissionStatus;
-  targetPlatform: 'instagram';
-  caption: string;
-  instagramUrl?: string;
-  rejectionReason?: string;
-  adminNotes?: string;
+  created_at: string;
 }
 
 export interface AdminStats {
   total: number;
   pending: number;
   approved: number;
-  uploaded: number;
   rejected: number;
 }

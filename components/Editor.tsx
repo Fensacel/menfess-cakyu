@@ -3,15 +3,14 @@
 import { useState, useCallback } from 'react';
 import { MenfessConfig, TextAlignment, FontSize } from '@/types/template';
 import { templates, getTemplateById } from '@/lib/canvas/templates';
-import { addSubmission } from '@/lib/storage/submissions';
-import { Send, CheckCircle2, Sparkles, ExternalLink, X } from 'lucide-react';
-import Link from 'next/link';
+import { renderToCanvas } from '@/lib/canvas/renderer';
+import { Send, CheckCircle2, Sparkles, X, Loader2 } from 'lucide-react';
 import { StepIndicator } from './StepIndicator';
 import { TemplateSelector } from './TemplateSelector';
 import { MessageForm } from './MessageForm';
 import { CanvasPreview } from './CanvasPreview';
 import { EditorControls } from './EditorControls';
-import { DownloadButton } from './DownloadButton';
+import { ColorCustomizer } from './ColorCustomizer';
 
 const TOTAL_STEPS = 3;
 
@@ -33,8 +32,9 @@ interface EditorProps {
 export function Editor({ isDark }: EditorProps) {
   const [step, setStep] = useState(1);
   const [config, setConfig] = useState<MenfessConfig>(DEFAULT_CONFIG);
-  const [submittedCode, setSubmittedCode] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const selectedTemplate = config.templateId
     ? getTemplateById(config.templateId) ?? null
@@ -59,18 +59,50 @@ export function Editor({ isDark }: EditorProps) {
   const handleReset = useCallback(() => {
     setStep(1);
     setConfig(DEFAULT_CONFIG);
+    setSubmitSuccess(false);
+    setErrorMessage('');
   }, []);
 
-  const handleSubmitToAdmin = useCallback(() => {
-    if (!config.message.trim() || !config.templateId) return;
+  const handleSubmitMenfess = async () => {
+    if (!config.message.trim() || !config.templateId || !selectedTemplate) return;
+
     setIsSubmitting(true);
+    setErrorMessage('');
+
     try {
-      const res = addSubmission(config);
-      setSubmittedCode(res.code);
+      const offscreenCanvas = document.createElement('canvas');
+      renderToCanvas(offscreenCanvas, selectedTemplate, config, 1);
+      const imageBase64 = offscreenCanvas.toDataURL('image/png', 1.0);
+
+      const res = await fetch('/api/submit-menfess', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          template_id: config.templateId,
+          message: config.message,
+          sender_name: config.isAnonymous ? null : config.senderName || null,
+          recipient_name: config.recipientName || null,
+          hashtag: config.hashtag || null,
+          song: config.song || null,
+          image_base64: imageBase64,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Terjadi kesalahan saat mengirim menfess.');
+      }
+
+      setSubmitSuccess(true);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Menfess gagal dikirim. Silakan coba lagi.');
     } finally {
       setIsSubmitting(false);
     }
-  }, [config]);
+  };
 
   const canProceed =
     step === 1 ? !!config.templateId : step === 2 ? config.message.trim().length > 0 : true;
@@ -158,11 +190,17 @@ export function Editor({ isDark }: EditorProps) {
                 />
               </div>
 
-              {/* Right: Preview */}
-              <div className="lg:sticky lg:top-24">
+              {/* Right: Preview & Color Customizer */}
+              <div className="lg:sticky lg:top-24 space-y-6">
                 <CanvasPreview
                   template={selectedTemplate}
                   config={config}
+                  isDark={isDark}
+                />
+                <ColorCustomizer
+                  customColors={config.customColors}
+                  onChange={(colors) => handleConfigChange({ customColors: colors })}
+                  onReset={() => handleConfigChange({ customColors: undefined })}
                   isDark={isDark}
                 />
               </div>
@@ -180,7 +218,7 @@ export function Editor({ isDark }: EditorProps) {
           </div>
         )}
 
-        {/* Step 3: Download */}
+        {/* Step 3: Review & Submit */}
         {step === 3 && (
           <div className="animate-[fadeIn_0.3s_ease]">
             <div className="mb-8 text-center">
@@ -189,14 +227,14 @@ export function Editor({ isDark }: EditorProps) {
                   isDark ? 'text-stone-100' : 'text-stone-900'
                 }`}
               >
-                Download Menfess
+                Live Preview & Kirim
               </h2>
               <p
                 className={`font-mono text-xs tracking-widest uppercase transition-colors duration-300 ${
                   isDark ? 'text-stone-500' : 'text-stone-400'
                 }`}
               >
-                Langkah 3 — Simpan gambar ke perangkat
+                Langkah 3 — Periksa tampilan akhir menfess kamu
               </p>
             </div>
 
@@ -208,112 +246,47 @@ export function Editor({ isDark }: EditorProps) {
                 isDark={isDark}
               />
 
-              {/* Template & message info */}
-              <div
-                className={`
-                  rounded-xl border p-4 space-y-2
-                  transition-colors duration-300
-                  ${isDark ? 'border-stone-800 bg-stone-900' : 'border-stone-200 bg-white'}
-                `}
-              >
-                <div className="flex items-center justify-between">
-                  <span
-                    className={`font-mono text-[10px] tracking-widest uppercase ${
-                      isDark ? 'text-stone-500' : 'text-stone-400'
-                    }`}
-                  >
-                    Template
-                  </span>
-                  <span
-                    className={`font-serif text-sm font-semibold ${
-                      isDark ? 'text-stone-200' : 'text-stone-800'
-                    }`}
-                  >
-                    {selectedTemplate?.name}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span
-                    className={`font-mono text-[10px] tracking-widest uppercase ${
-                      isDark ? 'text-stone-500' : 'text-stone-400'
-                    }`}
-                  >
-                    Ukuran Output
-                  </span>
-                  <span
-                    className={`font-serif text-sm ${
-                      isDark ? 'text-stone-200' : 'text-stone-800'
-                    }`}
-                  >
-                    1080 × 1080 px (PNG)
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span
-                    className={`font-mono text-[10px] tracking-widest uppercase ${
-                      isDark ? 'text-stone-500' : 'text-stone-400'
-                    }`}
-                  >
-                    Pengirim
-                  </span>
-                  <span
-                    className={`font-serif text-sm ${
-                      isDark ? 'text-stone-200' : 'text-stone-800'
-                    }`}
-                  >
-                    {config.isAnonymous ? 'Anonim' : config.senderName || '—'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Download button */}
-              <DownloadButton
-                template={selectedTemplate}
-                config={config}
+              <ColorCustomizer
+                customColors={config.customColors}
+                onChange={(colors) => handleConfigChange({ customColors: colors })}
+                onReset={() => handleConfigChange({ customColors: undefined })}
                 isDark={isDark}
               />
 
-              {/* Submit to Admin Instagram Button */}
-              <div
+              {errorMessage && (
+                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-mono text-center">
+                  {errorMessage}
+                </div>
+              )}
+
+              {/* Submit button */}
+              <button
+                onClick={handleSubmitMenfess}
+                disabled={isSubmitting}
                 className={`
-                  p-4 rounded-xl border text-center space-y-3
-                  transition-colors duration-300
-                  ${isDark ? 'border-amber-500/30 bg-amber-500/5' : 'border-amber-800/20 bg-amber-50/50'}
+                  w-full flex items-center justify-center gap-3
+                  px-8 py-4 rounded-xl font-serif text-sm tracking-widest uppercase font-bold
+                  border-2 transition-all duration-300 cursor-pointer shadow-lg
+                  focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed
+                  ${
+                    isDark
+                      ? 'bg-amber-500 border-amber-400 text-stone-950 hover:bg-amber-400'
+                      : 'bg-stone-900 border-stone-900 text-white hover:bg-stone-800'
+                  }
                 `}
               >
-                <div className="flex items-center justify-center gap-2">
-                  <Sparkles size={16} className={isDark ? 'text-amber-400' : 'text-amber-700'} />
-                  <p
-                    className={`font-serif text-sm font-bold ${
-                      isDark ? 'text-amber-300' : 'text-amber-900'
-                    }`}
-                  >
-                    Mau Di-upload ke Akun Instagram?
-                  </p>
-                </div>
-                <p
-                  className={`text-xs ${
-                    isDark ? 'text-stone-400' : 'text-stone-600'
-                  }`}
-                >
-                  Kirim menfess ini ke antrean Admin agar direview dan diposting ke feed Instagram resmi kami.
-                </p>
-                <button
-                  onClick={handleSubmitToAdmin}
-                  disabled={isSubmitting}
-                  className={`
-                    w-full flex items-center justify-center gap-2 py-3 px-4 rounded-lg font-mono text-xs
-                    tracking-widest uppercase font-semibold transition-all duration-200 cursor-pointer shadow-sm
-                    ${isDark
-                      ? 'bg-amber-500 hover:bg-amber-400 text-stone-950 shadow-amber-500/20'
-                      : 'bg-stone-900 hover:bg-stone-800 text-white shadow-stone-900/10'
-                    }
-                  `}
-                >
-                  <Send size={15} />
-                  {isSubmitting ? 'Mengirim...' : 'Kirim Menfess ke Admin IG'}
-                </button>
-              </div>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin" />
+                    <span>Mengirim Menfess...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send size={18} />
+                    <span>Kirim Menfess</span>
+                  </>
+                )}
+              </button>
 
               {/* Controls */}
               <EditorControls
@@ -331,7 +304,7 @@ export function Editor({ isDark }: EditorProps) {
       </div>
 
       {/* Modal Sukses Kirim ke Admin */}
-      {submittedCode && (
+      {submitSuccess && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/70 backdrop-blur-sm animate-[fadeIn_0.2s_ease]">
           <div
             className={`
@@ -340,7 +313,7 @@ export function Editor({ isDark }: EditorProps) {
             `}
           >
             <button
-              onClick={() => setSubmittedCode(null)}
+              onClick={handleReset}
               className="absolute top-4 right-4 p-1 rounded-full text-stone-400 hover:text-stone-600 transition-colors"
             >
               <X size={18} />
@@ -358,38 +331,19 @@ export function Editor({ isDark }: EditorProps) {
                 Menfess Masuk Antrean!
               </h3>
               <p className={`text-xs mt-2 ${isDark ? 'text-stone-400' : 'text-stone-500'}`}>
-                Menfess kamu telah diterima oleh Admin dengan nomor identifikasi:
+                Menfess kamu telah dikirim ke Admin dan sedang menunggu moderasi.
               </p>
-              <div
-                className={`
-                  mt-3 py-2 px-4 rounded-lg font-mono text-base font-bold tracking-wider inline-block
-                  ${isDark ? 'bg-stone-800 text-amber-400 border border-stone-700' : 'bg-stone-100 text-stone-900 border border-stone-300'}
-                `}
-              >
-                #{submittedCode}
-              </div>
             </div>
 
             <p className={`text-xs leading-relaxed ${isDark ? 'text-stone-400' : 'text-stone-600'}`}>
-              Admin kami akan memverifikasi dan mengunggah gambar menfess ini ke Instagram beserta caption dan hashtag yang sesuai.
+              Admin kami akan memverifikasi dan menyetujui menfess ini untuk dipublikasikan.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-3 pt-2">
-              <Link
-                href="/admin"
-                className={`
-                  flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg font-mono text-xs
-                  tracking-widest uppercase font-semibold transition-colors
-                  ${isDark ? 'bg-stone-800 hover:bg-stone-700 text-stone-200' : 'bg-stone-100 hover:bg-stone-200 text-stone-800'}
-                `}
-              >
-                <ExternalLink size={14} />
-                Portal Admin
-              </Link>
               <button
-                onClick={() => setSubmittedCode(null)}
+                onClick={handleReset}
                 className={`
-                  flex-1 py-2.5 px-4 rounded-lg font-mono text-xs tracking-widest uppercase font-semibold transition-colors
+                  w-full py-2.5 px-4 rounded-lg font-mono text-xs tracking-widest uppercase font-semibold transition-colors
                   ${isDark ? 'bg-amber-500 hover:bg-amber-400 text-stone-950' : 'bg-stone-900 hover:bg-stone-800 text-white'}
                 `}
               >
